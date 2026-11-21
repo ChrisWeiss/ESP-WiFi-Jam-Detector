@@ -1,10 +1,9 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Board support for the Waveshare ESP32-C5-Touch-LCD-3.5: shared I2C bus,
- * CH32V006 IO expander (LCD/touch reset, backlight, audio PA), AXP2101
- * status and battery, ST7796 LCD in landscape, FT6336 touch and the BOOT
- * button.
+ * Board support for the Waveshare ESP32-C5-Touch-LCD-2.8: shared I2C bus,
+ * CH32V003 IO expander (LCD/touch reset, backlight, audio PA, battery ADC),
+ * ST7789 LCD in landscape, CST3530 touch and the BOOT button.
  */
 #pragma once
 
@@ -14,18 +13,18 @@
 #include "esp_err.h"
 #include "esp_lcd_types.h"
 
-#define BOARD_LCD_W 480 /* landscape */
-#define BOARD_LCD_H 320
+#define BOARD_LCD_W 320 /* landscape */
+#define BOARD_LCD_H 240
 
 typedef enum {
-    BOARD_ORIENT_LANDSCAPE = 0,  /* MADCTL MV */
-    BOARD_ORIENT_LANDSCAPE_FLIP, /* MADCTL MV|MX|MY, rotated 180 degrees */
+    BOARD_ORIENT_LANDSCAPE = 0,  /* MADCTL MX|MV: readable landscape */
+    BOARD_ORIENT_LANDSCAPE_FLIP, /* MADCTL MY|MV: same view, rotated 180 degrees */
 } board_orient_t;
 
 typedef struct {
     bool pressed;
     uint16_t x, y;         /* landscape coordinates for the current orientation */
-    uint16_t raw_x, raw_y; /* controller coordinates (portrait, 320x480) */
+    uint16_t raw_x, raw_y; /* controller coordinates (portrait, 240x320) */
 } board_touch_t;
 
 /* Bring up I2C, expander, PMU log, LCD (backlight left off), touch and BOOT button. */
@@ -34,7 +33,7 @@ esp_err_t board_init(board_orient_t orient);
 /* Log every responding 7-bit address on the shared I2C bus. */
 esp_err_t board_i2c_scan(void);
 
-/* Log AXP2101 identity and status. Reads registers only, never writes. */
+/* Log the CH32V003 battery ADC. */
 esp_err_t board_pmu_log(void);
 
 typedef struct {

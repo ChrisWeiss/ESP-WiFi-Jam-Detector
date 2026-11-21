@@ -103,7 +103,10 @@ size_t link_fmt_status(char *buf, size_t cap, const link_status_t *s)
         jw(&w, ",\"power\":{\"vbus\":%s,\"battery\":%s,\"charging\":%s", tf(s->power.vbus), tf(s->power.battery),
            tf(s->power.charging));
         if (s->power.battery) {
-            jw(&w, ",\"pct\":%d,\"mv\":%u", s->power.percent, s->power.mv);
+            if (s->power.percent >= 0) {
+                jw(&w, ",\"pct\":%d", s->power.percent);
+            }
+            jw(&w, ",\"mv\":%u", s->power.mv);
         }
         jw(&w, "}");
     }

@@ -1,91 +1,57 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Waveshare ESP32-C5-Touch-LCD-3.5 pin and bus map.
+ * Waveshare ESP32-C5-Touch-LCD-2.8 pin and bus map.
  *
- * Every value below is taken from Waveshare's official resource repository,
- * https://github.com/waveshareteam/ESP32-C5-Touch-LCD-3.5 at commit 04e6134
- * (2026-09-30). Paths are relative to that repository:
- *
- *   BSP_H   = example/ESP-IDF-V554/02_lvgl_demo/components/
- *             waveshare__esp32_c5_touch_lcd_3_5/include/bsp/esp32_c5_touch_lcd_3_5.h
- *   BSP_C   = same component, esp32_c5_touch_lcd_3_5.c
- *   ARD_IO  = example/Arduino-v3.3.10/example/07_lvgl_demo/Board_IO.h
- *   README  = README.en.md
- *
- * Do not add or change a pin without citing its source here.
+ * Values are from Waveshare's ESP32-C5-Touch-LCD-2.8 resource repository
+ * (examples/esp-idf/01_lvgl_demo BSP header and examples/arduino/libraries/
+ * board_config Board_IO.h / Display_ST7789.h).
  */
 #pragma once
 
 #include "driver/gpio.h"
 
-/* ---- Shared I2C bus (expander, PMIC, touch, RTC, IMU, SHTC3, codec) ---- */
-#define BOARD_I2C_PORT        0            /* BSP sdkconfig.defaults: CONFIG_BSP_I2C_NUM=0 */
-#define BOARD_I2C_SCL         GPIO_NUM_26  /* BSP_H:79; 08_AXP2101/sdkconfig.defaults:10 */
-#define BOARD_I2C_SDA         GPIO_NUM_27  /* BSP_H:80; 08_AXP2101/sdkconfig.defaults:11 */
-#define BOARD_I2C_HZ          400000       /* ARD_IO:7; 08_AXP2101/sdkconfig.defaults:9 */
+/* Shared I2C: CH32V003, CST3530, ES8311, RTC, IMU, SHTC3. */
+#define BOARD_I2C_PORT        0
+#define BOARD_I2C_SDA         GPIO_NUM_0
+#define BOARD_I2C_SCL         GPIO_NUM_1
+#define BOARD_I2C_HZ          400000
 
-/* ---- CH32V006 IO expander (README:34 calls it CH32V006; BSP uses the ----
- * ---- waveshare/custom_io_expander_ch32v003 1.0.2 driver)              ---- */
-#define BOARD_EXIO_ADDR       0x24  /* README:34; ARD_IO:8 */
-#define BOARD_EXIO_REG_DIR    0x02  /* custom_io_expander_ch32v003.c: DIRECTION_REG_ADDR; bit=1 -> output */
-#define BOARD_EXIO_REG_OUT    0x03  /* custom_io_expander_ch32v003.c: OUTPUT_REG_ADDR */
-#define BOARD_EXIO_REG_IN     0x04  /* custom_io_expander_ch32v003.c: INPUT_REG_ADDR */
-#define BOARD_EXIO_REG_PWM    0x05  /* custom_io_expander_ch32v003.c: PWM_REG_ADDR (raw 0..255) */
-#define BOARD_EXIO_TP_RST     0     /* BSP_H:108 "Connected via IO expander P0"; ARD_IO:12 */
-#define BOARD_EXIO_LCD_RST    1     /* BSP_H:106 "Connected via IO expander P1"; ARD_IO:13 */
-#define BOARD_EXIO_PA_EN      5     /* 01_factory/components/bsp_extra/src/bsp_board_extra.c:24-31
-                                       (Audio_PA_EN / Audio_PA_DIS); ARD_IO:14 names it BOARD_POWER_EXIO.
-                                       BSP_C:384 drives it high at init; like the factory app we keep
-                                       the NS4150B off except while a beep plays (M6). */
-#define BOARD_EXIO_IN6        6     /* BSP_C:379 input; 01_factory/.../app_settings.cpp:48,131 */
-/* Backlight: expander PWM register, BSP_H:107 "Connected via IO expander PWM1"; BSP_C:577 */
+/* CH32V003 IO expander. Registers match Waveshare's 8-bit protocol. */
+#define BOARD_EXIO_ADDR       0x24
+#define BOARD_EXIO_REG_DIR    0x02 /* bit = 1 -> output */
+#define BOARD_EXIO_REG_OUT    0x03
+#define BOARD_EXIO_REG_IN     0x04
+#define BOARD_EXIO_REG_PWM    0x05 /* raw 0..255, backlight */
+#define BOARD_EXIO_REG_ADC    0x06 /* battery, uint16 LE, 10-bit */
+#define BOARD_EXIO_TP_RST     0
+#define BOARD_EXIO_LCD_RST    1
+#define BOARD_EXIO_PA_EN      3 /* NS4150B enable */
 
-/* ---- ST7796 LCD on SPI2 (shared with the TF card) ---- */
-#define BOARD_LCD_SPI_HOST    SPI2_HOST           /* BSP_H:444 */
-#define BOARD_LCD_PCLK_HZ     (60 * 1000 * 1000)  /* BSP_H:443 */
-#define BOARD_LCD_SCLK        GPIO_NUM_6          /* BSP_H:103 */
-#define BOARD_LCD_MOSI        GPIO_NUM_7          /* BSP_H:102 */
-#define BOARD_LCD_DC          GPIO_NUM_5          /* BSP_H:104 */
-#define BOARD_LCD_CS          GPIO_NUM_8          /* BSP_H:105 */
-#define BOARD_LCD_NATIVE_W    320                 /* BSP include/bsp/display.h:39 */
-#define BOARD_LCD_NATIVE_H    480                 /* BSP include/bsp/display.h:40 */
-/* Panel init per BSP_C:428-441: BGR element order, colour inversion on,
- * portrait uses mirror_x=1. RGB565 big-endian (display.h:30-34). */
+/* ST7789 on SPI2, shared with the TF card. Native panel is portrait. */
+#define BOARD_LCD_SPI_HOST    SPI2_HOST
+#define BOARD_LCD_PCLK_HZ     (40 * 1000 * 1000)
+#define BOARD_LCD_SCLK        GPIO_NUM_6
+#define BOARD_LCD_MOSI        GPIO_NUM_7
+#define BOARD_LCD_DC          GPIO_NUM_9
+#define BOARD_LCD_CS          GPIO_NUM_10
+#define BOARD_LCD_NATIVE_W    240
+#define BOARD_LCD_NATIVE_H    320
 
-/* ---- TF card (shares SCLK/MOSI with the LCD) ---- */
-#define BOARD_SD_CS           GPIO_NUM_9  /* BSP_H:118 */
-#define BOARD_SD_MISO         GPIO_NUM_2  /* BSP_H:121 */
+#define BOARD_SD_CS           GPIO_NUM_23
+#define BOARD_SD_MISO         GPIO_NUM_8
 
-/* ---- FT6336 touch ---- */
-#define BOARD_TOUCH_ADDR      0x38        /* README:33; esp_lcd_touch_ft6336.h:64 */
-#define BOARD_TOUCH_INT       GPIO_NUM_3  /* BSP_H:109 */
+/* CST3530 touch. Register access uses a 32-bit address. */
+#define BOARD_TOUCH_ADDR      0x58
+#define BOARD_TOUCH_INT       GPIO_NUM_5
+#define BOARD_TOUCH_DATA_REG  0xD0070000u
+#define BOARD_TOUCH_END_REG   0xD00002ABu
 
-/* ---- AXP2101 PMIC ---- */
-#define BOARD_PMU_ADDR        0x34  /* README:35; 08_AXP2101/main/main.cpp:52 */
-/* PMU IRQ is not wired to a GPIO in Waveshare's demo: 08_AXP2101/sdkconfig.defaults:12 (-1). */
+#define BOARD_BOOT_BTN        GPIO_NUM_28 /* active low */
 
-/* ---- Buttons ---- */
-#define BOARD_BOOT_BTN        GPIO_NUM_28 /* 01_factory/components/app_camera/camera_ui/camera_ui.c:27;
-                                             input + pull-up, active low (same file :112-119, :580) */
-/* PWR key goes to the AXP2101 PWRON pin (schematic net PWRON), not to a GPIO. */
-
-/* ---- I2S (ES8311 + NS4150B) ---- */
-#define BOARD_I2S_BCLK        GPIO_NUM_23 /* BSP_H:87 */
-#define BOARD_I2S_MCLK        GPIO_NUM_NC /* BSP_H:88 */
-#define BOARD_I2S_WS          GPIO_NUM_10 /* BSP_H:89 */
-#define BOARD_I2S_DOUT        GPIO_NUM_25 /* BSP_H:90 */
-#define BOARD_I2S_DIN         GPIO_NUM_24 /* BSP_H:91 */
-
-/* ES8311: I2C address ES8311_CODEC_DEFAULT_ADDR from esp_codec_dev (BSP_C:323),
- * no MCLK (BSP_C:342 use_mclk = false; BSP_H:88), I2S slave (BSP_C:341),
- * PA via the expander, not a GPIO (BSP_H:92 BSP_POWER_AMP_IO = NC),
- * hw_gain pa 5.0 V / DAC 3.3 V (BSP_C:330-333). Playback as the factory app:
- * 16 kHz, 16-bit mono (bsp_board_extra.c:101-105), volume 85
- * (bsp_extra/include/bsp_board_extra.h:31). */
-
-/* ---- AXP2101 battery (registers from 08_AXP2101's XPowersLib, REG/AXP2101Constants.h) ---- */
-/* 0x00 STATUS1: bit5 VBUS good, bit3 battery present; 0x01 STATUS2: bits 7:5 = 1
- * charging; 0x30 ADC_CHANNEL_CTRL bit0 = battery voltage ADC, which
- * 08_AXP2101/main/port_axp2101.cpp:108 enables; 0x34/0x35 battery mV (H5/L8);
- * 0xA4 fuel-gauge percent (XPowersAXP2101.tpp getBattVoltage/getBatteryPercent). */
+/* ES8311 full-duplex I2S. Playback uses BCLK/WS/DOUT; DIN is unused here. */
+#define BOARD_I2S_BCLK        GPIO_NUM_24
+#define BOARD_I2S_MCLK        GPIO_NUM_NC
+#define BOARD_I2S_WS          GPIO_NUM_25
+#define BOARD_I2S_DOUT        GPIO_NUM_26
+#define BOARD_I2S_DIN         GPIO_NUM_27

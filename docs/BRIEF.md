@@ -1,5 +1,10 @@
 # Project brief: Dual-band (2.4 + 5 GHz) RF jamming detector on ESP32-C5
 
+The `board-2.8` branch runs this detector on the Waveshare
+**ESP32-C5-Touch-LCD-2.8** (ST7789, CST3530, CH32V003). The text below is the
+original brief for the 3.5-inch board. Pins, the panel and the 320×240 layout
+for this branch are in `components/board` and the README.
+
 You are helping me build firmware for a **receive-only** RF interference / jamming
 detector. It runs standalone on a Waveshare **ESP32-C5-Touch-LCD-3.5** board and
 shows the RF noise floor and spectrum on the built-in touchscreen. The board is

@@ -10,10 +10,11 @@
 #include "board.h"
 #include "ui_priv.h"
 
-#define TILE_Y 32
-#define TILE_W 232
-#define TILE_H 244
-#define PAD    10
+#define TILE_Y0  20
+#define TILE_W   (BOARD_LCD_W - 8)
+#define TILE_H   106
+#define TILE_GAP 4
+#define PAD      4
 
 typedef struct {
     lv_obj_t *tile, *state, *why, *floor, *duty_bar, *duty, *last, *rate;
@@ -44,47 +45,41 @@ static void build_tile(lv_obj_t *scr, band_id_t band)
 {
     tile_t *t = &s_tile[band];
     t->tile = lv_obj_create(scr);
-    lv_obj_set_pos(t->tile, band == BAND_24 ? 6 : BOARD_LCD_W - 6 - TILE_W, TILE_Y);
+    lv_obj_set_pos(t->tile, 4, TILE_Y0 + (int)band * (TILE_H + TILE_GAP));
     lv_obj_set_size(t->tile, TILE_W, TILE_H);
     lv_obj_set_style_pad_all(t->tile, PAD, 0);
-    lv_obj_set_style_radius(t->tile, 8, 0);
+    lv_obj_set_style_radius(t->tile, 6, 0);
     lv_obj_set_style_border_width(t->tile, 2, 0);
     lv_obj_remove_flag(t->tile, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(t->tile, tile_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)band);
 
-    lv_obj_t *name = add_label(t->tile, &lv_font_montserrat_28, 0);
+    lv_obj_t *name = add_label(t->tile, &lv_font_montserrat_14, 0);
     lv_label_set_text(name, sweep_plan(band)->name);
-    t->state = add_label(t->tile, &lv_font_montserrat_20, 34);
-    t->why = add_label(t->tile, &lv_font_montserrat_14, 60);
-    lv_label_set_long_mode(t->why, LV_LABEL_LONG_MODE_WRAP);
-    t->floor = add_label(t->tile, &lv_font_montserrat_14, 98);
-    t->duty = add_label(t->tile, &lv_font_montserrat_14, 120);
+    t->state = add_label(t->tile, &lv_font_montserrat_14, 16);
+    t->why = add_label(t->tile, &lv_font_montserrat_14, 32);
+    t->floor = add_label(t->tile, &lv_font_montserrat_14, 48);
+    t->duty = add_label(t->tile, &lv_font_montserrat_14, 64);
+    lv_obj_set_width(t->duty, TILE_W / 2 - PAD);
     t->duty_bar = lv_bar_create(t->tile);
-    lv_obj_set_pos(t->duty_bar, 0, 140);
-    lv_obj_set_size(t->duty_bar, TILE_W - 2 * PAD, 12);
+    lv_obj_set_pos(t->duty_bar, TILE_W / 2, 68);
+    lv_obj_set_size(t->duty_bar, TILE_W / 2 - 2 * PAD, 8);
     lv_bar_set_range(t->duty_bar, 0, 100);
-    t->last = add_label(t->tile, &lv_font_montserrat_14, 160);
-    t->rate = add_label(t->tile, &lv_font_montserrat_14, 198);
-    lv_obj_set_style_text_color(t->rate, lv_color_hex(0x9ab0c8), 0);
+    t->last = add_label(t->tile, &lv_font_montserrat_14, 78);
+    t->rate = t->last; /* rate shares the last line; update writes one string */
 }
 
 lv_obj_t *ui_status_create(void)
 {
     lv_obj_t *scr = ui_screen_create();
     lv_obj_t *title = lv_label_create(scr);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
-    lv_label_set_text(title, "RF interference monitor");
-    lv_obj_set_pos(title, 8, 4);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
+    lv_label_set_text(title, "RF interference");
+    lv_obj_set_pos(title, 4, 2);
     s_uptime = lv_label_create(scr);
-    lv_obj_align(s_uptime, LV_ALIGN_TOP_RIGHT, -8, 8);
+    lv_obj_align(s_uptime, LV_ALIGN_TOP_RIGHT, -4, 2);
     for (int b = 0; b < BAND_COUNT; b++) {
         build_tile(scr, (band_id_t)b);
     }
-    lv_obj_t *note = lv_label_create(scr);
-    lv_obj_set_style_text_color(note, lv_color_hex(0x9ab0c8), 0);
-    lv_label_set_text(note, "Interference / possible jamming: this cannot prove intent.\n"
-                            "BOOT: next screen   hold BOOT: re-learn   tap a band: spectrum");
-    lv_obj_align(note, LV_ALIGN_BOTTOM_LEFT, 8, -4);
     return scr;
 }
 
@@ -130,6 +125,8 @@ void ui_status_update(const ui_snap_t *s)
     char pwr[32] = "";
     if (s->power_ok && s->power.battery && s->power.percent >= 0) {
         snprintf(pwr, sizeof(pwr), "%s %d%%   ", s->power.charging ? "charging" : "battery", s->power.percent);
+    } else if (s->power_ok && s->power.battery) {
+        snprintf(pwr, sizeof(pwr), "%.2fV ", s->power.battery_mv / 1000.0);
     } else if (s->power_ok && s->power.vbus) {
         snprintf(pwr, sizeof(pwr), "USB   ");
     }
@@ -175,19 +172,18 @@ void ui_status_update(const ui_snap_t *s)
         if (lv_bar_get_value(t->duty_bar) != (int32_t)duty) {
             lv_bar_set_value(t->duty_bar, (int32_t)duty, LV_ANIM_OFF);
         }
+        char rate[24];
+        if (s->scan[b]) {
+            snprintf(rate, sizeof(rate), "%.1f/s g%u", v.sweeps_per_10s / 10.0f, v.gain);
+        } else {
+            snprintf(rate, sizeof(rate), "off g%u", v.gain);
+        }
         if (st->alarms) {
             ui_fmt_duration(d, sizeof(d), s->now_ms - st->last_alarm_ms);
-            snprintf(text, sizeof(text), "last alarm: %s\n%s ago, %u since boot", detect_kind_name(st->last_alarm_kind),
-                     d, (unsigned)st->alarms);
+            snprintf(text, sizeof(text), "alarm %s ago  %s", d, rate);
         } else {
-            snprintf(text, sizeof(text), "no alarm since boot");
+            snprintf(text, sizeof(text), "no alarm  %s", rate);
         }
         ui_set_text(t->last, text);
-        if (s->scan[b]) {
-            snprintf(text, sizeof(text), "%.1f sweeps/s, gain %u", v.sweeps_per_10s / 10.0f, v.gain);
-        } else {
-            snprintf(text, sizeof(text), "not swept, gain %u", v.gain);
-        }
-        ui_set_text(t->rate, text);
     }
 }

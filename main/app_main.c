@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * esp-wifi-jammer-detector: receive-only RF interference / possible-jamming
- * detector for the Waveshare ESP32-C5-Touch-LCD-3.5.
+ * detector for the Waveshare ESP32-C5-Touch-LCD-2.8.
  *
  * Band sweep, per-band interference detection against a learned baseline,
  * status / spectrum + waterfall / settings screens, settings, gains and

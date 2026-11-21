@@ -96,7 +96,7 @@ static void test_params(void)
 static void test_format(FILE *out)
 {
     static char buf[LINK_LINE_MAX];
-    size_t n = link_fmt_hello(buf, sizeof(buf), "aabbccddeeff", "1.1.0", "ESP32-C5-Touch-LCD-3.5");
+    size_t n = link_fmt_hello(buf, sizeof(buf), "aabbccddeeff", "1.1.0", "ESP32-C5-Touch-LCD-2.8");
     CHECK(n > 0 && n == strlen(buf) && buf[n - 1] == '\n' && !strncmp(buf, "{\"t\":\"hello\"", 12), "hello");
     fputs(buf, out);
     printf("hello: %zu bytes\n", n);
@@ -126,6 +126,9 @@ static void test_format(FILE *out)
     CHECK(strstr(buf, "\"scan\":3") != NULL && strstr(buf, "\"wide_db\":") != NULL, "settings: %s", buf);
     fputs(buf, out);
     printf("status: %zu bytes\n", n);
+    s.power = (link_power_t){.ok = true, .battery = true, .percent = -1, .mv = 4240};
+    n = link_fmt_status(buf, sizeof(buf), &s);
+    CHECK(n > 0 && strstr(buf, "\"mv\":4240") != NULL && !strstr(buf, "\"pct\""), "voltage only: %s", buf);
     s.power = (link_power_t){.ok = true, .vbus = true, .battery = false, .percent = -1};
     n = link_fmt_status(buf, sizeof(buf), &s);
     CHECK(n > 0 && !strstr(buf, "\"pct\""), "no battery: %s", buf);

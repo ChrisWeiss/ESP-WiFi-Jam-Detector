@@ -54,7 +54,7 @@ the chip's base MAC (stable, unique). `params` describes every adjustable
 setting, so a host can build its controls from it.
 
 ```json
-{"t":"hello","v":1,"id":"10bda3fefff2","fw":"1.1.0","model":"ESP32-C5-Touch-LCD-3.5","bands":["2.4","5"],
+{"t":"hello","v":1,"id":"10bda3fefff2","fw":"1.1.0","model":"ESP32-C5-Touch-LCD-2.8","bands":["2.4","5"],
  "params":[{"k":"learn_s","n":"Learn time","u":"s","min":10,"max":300,"step":10},
            {"k":"wide_db","n":"Wideband rise","u":"dB","min":3,"max":30,"step":1}, ...]}
 ```
@@ -85,7 +85,7 @@ command (at most two per second).
 | `alarms`, `last_alarm_kind` | alarms since boot and the kind of the latest |
 | `floor_db` | median noise-floor rise over the learned baseline, dB |
 | `occupancy_pct`, `clipped_pct`, `duty_pct` | latest sweep's metrics (as on the status screen) |
-| `power` | absent if the power chip could not be read; `pct`/`mv` absent without a battery |
+| `power` | absent if the reading failed. `mv` is the cell voltage in millivolts when a battery input is present. `pct` is a fuel-gauge percentage and is omitted on the 2.8-inch board, which only has the CH32V003 ADC (`percent` is not sent as −1). `vbus` and `charging` stay false on that board: it has no power-management chip |
 | `set` | current settings: `beep`, `scan` (bit 0 = 2.4 GHz, bit 1 = 5 GHz) and every `params` key |
 
 ### `event`

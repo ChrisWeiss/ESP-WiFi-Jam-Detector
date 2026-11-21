@@ -1,7 +1,7 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Spectrum screen, 480x320 landscape:
+ * Spectrum screen, 320x240 landscape:
  *   header  : band and its detector state (coloured); the other band's state
  *   plot    : drawn by plot.c straight to the panel (not through LVGL):
  *             current average (cyan, filled), max-hold (orange) and learned
@@ -39,13 +39,13 @@
 
 static const char *TAG = "ui_spectrum";
 
-#define PLOT_X        28
-#define PLOT_Y        26
+#define PLOT_X        22
+#define PLOT_Y        18
 #define PLOT_W        (BOARD_LCD_W - PLOT_X - 2)
-#define PLOT_H        236
+#define PLOT_H        168
 #define Y_MIN_CDB     0
 #define Y_MAX_CDB     9000
-#define STRIP_ROWS    12 /* plot strip: 450 x 12 px = 10.8 KB; two internal DMA buffers */
+#define STRIP_ROWS    12 /* plot strip: PLOT_W x 12 px; two internal DMA buffers */
 #define WF_LUT        64
 #define WF_REL_LO     (-500) /* waterfall colour range, cdB above baseline */
 #define WF_REL_HI     3000
@@ -93,7 +93,7 @@ static lv_obj_t *s_snap_parent; /* off-screen parent of the snapshot canvas */
 static waterfall_t s_wf[BAND_COUNT];
 static uint16_t s_lut[WF_LUT];
 static bool s_waterfall, s_wf_dirty;
-static lv_obj_t *s_db_labels[8], *s_t_labels[WF_LABELS], *s_view_label, *s_reset_btn;
+static lv_obj_t *s_db_labels[4], *s_t_labels[WF_LABELS], *s_view_label, *s_reset_btn;
 static uint32_t s_now_ms;
 
 /* Colours in the panel's big-endian order: strips go straight to the LCD. */
@@ -288,7 +288,7 @@ static void set_mode(bool waterfall)
         lv_obj_set_flag(s_t_labels[i], LV_OBJ_FLAG_HIDDEN, !waterfall);
     }
     lv_obj_set_flag(s_reset_btn, LV_OBJ_FLAG_HIDDEN, waterfall);
-    lv_label_set_text(s_view_label, waterfall ? "Spectrum" : "Waterfall");
+    lv_label_set_text(s_view_label, waterfall ? "Plot" : "WF");
     s_wf_dirty = true;
 }
 
@@ -393,7 +393,7 @@ static void build_axis(void)
 /* Like the screen, with a wider margin for the time labels. */
 #define SNAP_X 44
 #define SNAP_W (SNAP_X + PLOT_W + 4)
-#define SNAP_H 320
+#define SNAP_H (AXIS_Y + 52)
 
 static void snap_text(lv_layer_t *layer, const char *text, const lv_font_t *font, lv_color_t c, int32_t x,
                       int32_t y, int32_t w, lv_text_align_t align)
@@ -459,7 +459,7 @@ static void save_snapshot(band_id_t band)
         }
     }
     /* Colour scale under the axis. */
-    const int32_t bar_x = 30, bar_w = 160, bar_y = 304;
+    const int32_t bar_x = 30, bar_w = 120, bar_y = AXIS_Y + 36;
     for (int32_t y = bar_y; y < bar_y + 10; y++) {
         for (int32_t x = 0; x < bar_w; x++) {
             px[(size_t)y * SNAP_W + bar_x + x] = __builtin_bswap16(s_lut[x * (WF_LUT - 1) / (bar_w - 1)]);
@@ -470,10 +470,7 @@ static void save_snapshot(band_id_t band)
     lv_canvas_init_layer(cv, &layer);
     char text[96], t[16];
     snprintf(text, sizeof(text), "%s  INTERFERENCE: %s", p->name, detect_kind_name(w->snap_kind));
-    snap_text(&layer, text, &lv_font_montserrat_20, ui_state_colour(DETECT_ALARM), 4, 2, 340, LV_TEXT_ALIGN_LEFT);
-    ui_fmt_duration(t, sizeof(t), w->snap_alarm_ms);
-    snprintf(text, sizeof(text), "boot %u, up %s", (unsigned)settings_boot(), t);
-    snap_text(&layer, text, &lv_font_montserrat_14, lv_color_white(), 340, 6, SNAP_W - 344, LV_TEXT_ALIGN_RIGHT);
+    snap_text(&layer, text, &lv_font_montserrat_14, ui_state_colour(DETECT_ALARM), 4, 2, SNAP_W - 8, LV_TEXT_ALIGN_LEFT);
     /* Times against the alarm: top row, alarm row, oldest row. */
     const uint32_t t_alarm = w->t_ms[(w->head + alarm_age) % PLOT_H];
     const lv_color_t grey = lv_color_hex(0x9ab0c8);
@@ -699,13 +696,13 @@ lv_obj_t *ui_spectrum_create(void)
 
     s_scr = ui_screen_create();
     s_header = lv_label_create(s_scr);
-    lv_obj_set_style_text_font(s_header, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(s_header, &lv_font_montserrat_14, 0);
     lv_obj_set_pos(s_header, 4, 2);
     lv_label_set_long_mode(s_header, LV_LABEL_LONG_MODE_DOTS);
     s_rates = lv_label_create(s_scr);
     lv_obj_align(s_rates, LV_ALIGN_TOP_RIGHT, -4, 5);
 
-    for (int db = 80, i = 0; db >= 10; db -= 10, i++) {
+    for (int db = 80, i = 0; db >= 20; db -= 20, i++) {
         lv_obj_t *l = lv_label_create(s_scr);
         lv_label_set_text_fmt(l, "%d", db);
         lv_obj_set_pos(l, 2, PLOT_Y + PLOT_H - 1 - db * 100 * (PLOT_H - 1) / Y_MAX_CDB - 8);
@@ -726,13 +723,15 @@ lv_obj_t *ui_spectrum_create(void)
     s_axis = lv_obj_create(s_scr);
     lv_obj_remove_style_all(s_axis);
     lv_obj_set_pos(s_axis, 0, AXIS_Y);
-    lv_obj_set_size(s_axis, BOARD_LCD_W, 34);
+    lv_obj_set_size(s_axis, BOARD_LCD_W, 30);
 
     s_footer = lv_label_create(s_scr);
-    lv_obj_align(s_footer, LV_ALIGN_BOTTOM_LEFT, 4, -4);
-    s_reset_btn = add_button("Reset max", 90, -2, reset_cb, NULL);
-    add_button("2.4 / 5", 62, -96, band_cb, NULL);
-    add_button("Waterfall", 86, -162, view_cb, &s_view_label);
+    lv_obj_align(s_footer, LV_ALIGN_BOTTOM_LEFT, 2, -2);
+    lv_obj_set_width(s_footer, 160);
+    lv_label_set_long_mode(s_footer, LV_LABEL_LONG_MODE_CLIP);
+    s_reset_btn = add_button("Max", 40, -1, reset_cb, NULL);
+    add_button("Band", 46, -44, band_cb, NULL);
+    add_button("WF", 40, -94, view_cb, &s_view_label);
     build_axis();
     return s_scr;
 }

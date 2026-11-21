@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * LVGL 9 glue for the board: display flush through board_lcd_draw_async()
- * (so LCD DMA respects the sweep's radio-quiet windows), FT6336 touch input,
+ * (so LCD DMA respects the sweep's radio-quiet windows), CST3530 touch input,
  * tick, a handler task and a lock. LVGL's heap is in PSRAM.
  */
 #pragma once

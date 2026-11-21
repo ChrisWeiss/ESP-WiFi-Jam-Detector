@@ -31,7 +31,7 @@
 
 static const char *TAG = "link";
 
-#define MODEL           "ESP32-C5-Touch-LCD-3.5"
+#define MODEL           "ESP32-C5-Touch-LCD-2.8"
 #define QUEUE_LEN       8
 #define TASK_PRIO       2
 #define WRITE_PRIO      12   /* while holding the radio-quiet token (as eventlog.c) */

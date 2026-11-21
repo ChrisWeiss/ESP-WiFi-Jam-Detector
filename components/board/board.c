@@ -1,13 +1,10 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Board bring-up order follows Waveshare's BSP (esp32_c5_touch_lcd_3_5.c,
- * bsp_io_expander_init() and bsp_display_new()): I2C, then the CH32V006
- * expander pulses touch/LCD reset, then the ST7796 is set up over SPI2.
- * The audio PA (P5) stays off until a beep. The AXP2101's rails are not
- * touched by Waveshare's BSP (its rail writes are all commented out in
- * 08_AXP2101/main/port_axp2101.cpp), so we only read it, apart from enabling
- * the battery voltage ADC as that example does.
+ * Board bring-up for the Waveshare ESP32-C5-Touch-LCD-2.8: I2C on GPIO0/1,
+ * then the CH32V003 expander pulses touch/LCD reset, then the ST7789 is set
+ * up over SPI2. The audio PA (EXIO3) stays off until a beep. Battery voltage
+ * comes from the expander's ADC (register 0x06), not an AXP2101.
  */
 #include <stdatomic.h>
 #include <string.h>
@@ -24,30 +21,18 @@
 #include "esp_log.h"
 #include "board.h"
 #include "board_pins.h"
-#include "st7796.h"
+#include "st7789.h"
 
 static const char *TAG = "board";
 
 #define I2C_TIMEOUT_MS   100
 #define LCD_MAX_TRANSFER (BOARD_LCD_W * 40 * 2)
 
-/* AXP2101 registers, from XPowersLib REG/AXP2101Constants.h in Waveshare's
- * 08_AXP2101 example. */
-#define AXP_REG_STATUS1   0x00
-#define AXP_REG_STATUS2   0x01
-#define AXP_REG_IC_TYPE   0x03
-#define AXP_REG_DC_ONOFF  0x80
-#define AXP_REG_LDO_ONOFF 0x90
-#define AXP_REG_BAT_PCT   0xA4
-#define AXP_REG_ADC_CTRL  0x30 /* bit0: battery voltage ADC */
-#define AXP_REG_VBAT_H    0x34 /* bits 4:0, then 0x35: mV */
-#define AXP_CHIP_ID       0x4A
-
-/* FT6336 registers, from Waveshare's esp_lcd_touch_ft6336.c */
-#define FT_REG_TD_STATUS  0x02 /* touch count, followed by P1 XH, XL, YH, YL */
+/* CST3530 reports one point in the first 9 bytes at BOARD_TOUCH_DATA_REG.
+ * Layout matches Waveshare's esp_lcd_touch_cst3530.c. */
 
 static i2c_master_bus_handle_t s_bus;
-static i2c_master_dev_handle_t s_exio, s_pmu, s_touch;
+static i2c_master_dev_handle_t s_exio, s_touch;
 static uint8_t s_exio_out;
 static esp_lcd_panel_io_handle_t s_lcd_io;
 static esp_lcd_panel_handle_t s_panel;
@@ -114,7 +99,7 @@ static esp_err_t exio_init(void)
     ESP_RETURN_ON_ERROR(exio_set(BIT(BOARD_EXIO_TP_RST) | BIT(BOARD_EXIO_LCD_RST), false), TAG, "reset low");
     vTaskDelay(pdMS_TO_TICKS(50));
     ESP_RETURN_ON_ERROR(exio_set(BIT(BOARD_EXIO_TP_RST) | BIT(BOARD_EXIO_LCD_RST), true), TAG, "reset release");
-    vTaskDelay(pdMS_TO_TICKS(120)); /* ST7796 needs 120 ms after reset */
+    vTaskDelay(pdMS_TO_TICKS(200)); /* CST3530 needs longer than the ST7789's 120 ms */
     ESP_LOGI(TAG, "expander ok: dir=0x%02x out=0x%02x", outputs, s_exio_out);
     return ESP_OK;
 }
@@ -135,38 +120,35 @@ esp_err_t board_i2c_scan(void)
     return ESP_OK;
 }
 
+/* One sample. Waveshare averages eight; a single read is enough for the status line.
+ * 3.3 V reference and a 3:1 divider. */
+static esp_err_t battery_mv(uint16_t *mv)
+{
+    uint8_t raw[2];
+    ESP_RETURN_ON_ERROR(reg_read(s_exio, BOARD_EXIO_REG_ADC, raw, sizeof(raw)), TAG, "battery ADC read failed");
+    const uint16_t sample = (uint16_t)(raw[0] | ((uint16_t)raw[1] << 8));
+    ESP_RETURN_ON_FALSE(sample <= 1023, ESP_ERR_INVALID_RESPONSE, TAG, "battery ADC sample %u", sample);
+    *mv = (uint16_t)(sample * 3300u / 1023u * 3u);
+    return ESP_OK;
+}
+
 esp_err_t board_pmu_log(void)
 {
-    uint8_t id = 0, st[2] = {0}, dc = 0, ldo = 0, pct = 0;
-    ESP_RETURN_ON_ERROR(reg_read(s_pmu, AXP_REG_IC_TYPE, &id, 1), TAG, "AXP2101 not responding at 0x%02x",
-                        BOARD_PMU_ADDR);
-    ESP_RETURN_ON_ERROR(reg_read(s_pmu, AXP_REG_STATUS1, st, 2), TAG, "AXP2101 status read failed");
-    ESP_RETURN_ON_ERROR(reg_read(s_pmu, AXP_REG_DC_ONOFF, &dc, 1), TAG, "AXP2101 DC read failed");
-    ESP_RETURN_ON_ERROR(reg_read(s_pmu, AXP_REG_LDO_ONOFF, &ldo, 1), TAG, "AXP2101 LDO read failed");
-    ESP_RETURN_ON_ERROR(reg_read(s_pmu, AXP_REG_BAT_PCT, &pct, 1), TAG, "AXP2101 battery read failed");
-
-    /* Bit meanings as used by XPowersLib: STATUS1 bit5 VBUS good, bit3 battery
-     * present; STATUS2 bits 7:5 == 1 means charging. */
-    ESP_LOGI(TAG, "AXP2101: id=0x%02x (%s) status=0x%02x/0x%02x vbus=%d batt=%d charging=%d "
-             "dc_on=0x%02x ldo_on=0x%02x batt%%=%u",
-             id, id == AXP_CHIP_ID ? "ok" : "UNEXPECTED", st[0], st[1], !!(st[0] & BIT(5)), !!(st[0] & BIT(3)),
-             (st[1] >> 5) == 1, dc, ldo, pct);
+    uint16_t mv = 0;
+    ESP_RETURN_ON_ERROR(battery_mv(&mv), TAG, "battery");
+    ESP_LOGI(TAG, "battery %.2f V (CH32 ADC)", mv / 1000.0);
     return ESP_OK;
 }
 
 esp_err_t board_power_read(board_power_t *out)
 {
-    uint8_t st[2], pct, v[2];
-    ESP_RETURN_ON_ERROR(reg_read(s_pmu, AXP_REG_STATUS1, st, 2), TAG, "AXP2101 status");
-    ESP_RETURN_ON_ERROR(reg_read(s_pmu, AXP_REG_BAT_PCT, &pct, 1), TAG, "AXP2101 percent");
-    ESP_RETURN_ON_ERROR(reg_read(s_pmu, AXP_REG_VBAT_H, v, 2), TAG, "AXP2101 voltage");
+    uint16_t mv = 0;
+    ESP_RETURN_ON_ERROR(battery_mv(&mv), TAG, "battery");
     *out = (board_power_t){
-        .vbus = st[0] & BIT(5),
-        .battery = st[0] & BIT(3),
-        .charging = (st[1] >> 5) == 1,
+        .battery = true,
+        .percent = -1, /* the CH32 ADC has no fuel gauge */
+        .battery_mv = mv,
     };
-    out->percent = out->battery && pct <= 100 ? pct : -1;
-    out->battery_mv = out->battery ? (uint16_t)(((v[0] & 0x1F) << 8) | v[1]) : 0;
     return ESP_OK;
 }
 
@@ -207,9 +189,12 @@ static bool lcd_trans_done(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_
 
 esp_err_t board_lcd_set_orient(board_orient_t orient)
 {
+    /* Portrait MADCTL is 0x00. MV alone exchanges the axes and leaves the
+     * picture mirrored. MX|MV is the readable 90-degree view; MY|MV turns
+     * that view 180 degrees. board_touch_read uses the same two mappings. */
     bool flip = orient == BOARD_ORIENT_LANDSCAPE_FLIP;
     ESP_RETURN_ON_ERROR(esp_lcd_panel_swap_xy(s_panel, true), TAG, "swap_xy failed");
-    ESP_RETURN_ON_ERROR(esp_lcd_panel_mirror(s_panel, flip, flip), TAG, "mirror failed");
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_mirror(s_panel, !flip, flip), TAG, "mirror failed");
     s_orient = orient;
     return ESP_OK;
 }
@@ -259,16 +244,16 @@ static esp_err_t lcd_init(board_orient_t orient)
 
     const esp_lcd_panel_dev_config_t panel_cfg = {
         .reset_gpio_num = GPIO_NUM_NC, /* hardware reset already done via expander P1 */
-        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR,
+        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
         .bits_per_pixel = 16,
     };
-    ESP_RETURN_ON_ERROR(st7796_new_panel(s_lcd_io, &panel_cfg, &s_panel), TAG, "ST7796 create failed");
-    ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(s_panel), TAG, "ST7796 reset failed");
-    ESP_RETURN_ON_ERROR(esp_lcd_panel_init(s_panel), TAG, "ST7796 init failed");
+    ESP_RETURN_ON_ERROR(st7789_new_panel(s_lcd_io, &panel_cfg, &s_panel), TAG, "ST7789 create failed");
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(s_panel), TAG, "ST7789 reset failed");
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_init(s_panel), TAG, "ST7789 init failed");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_invert_color(s_panel, true), TAG, "invert failed");
     ESP_RETURN_ON_ERROR(board_lcd_set_orient(orient), TAG, "orientation failed");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_panel, true), TAG, "display on failed");
-    ESP_LOGI(TAG, "ST7796 ok, %dx%d landscape, orient=%d", BOARD_LCD_W, BOARD_LCD_H, orient);
+    ESP_LOGI(TAG, "ST7789 ok, %dx%d landscape, orient=%d", BOARD_LCD_W, BOARD_LCD_H, orient);
     return ESP_OK;
 }
 
@@ -312,17 +297,31 @@ void board_rf_quiet_end(void)
     xSemaphoreGive(s_rf_done);
 }
 
+static esp_err_t touch_cmd(uint32_t reg, uint8_t *buf, size_t len)
+{
+    const uint8_t addr[4] = {reg >> 24, reg >> 16, reg >> 8, reg};
+    if (len == 0) {
+        return i2c_master_transmit(s_touch, addr, sizeof(addr), I2C_TIMEOUT_MS);
+    }
+    return i2c_master_transmit_receive(s_touch, addr, sizeof(addr), buf, len, I2C_TIMEOUT_MS);
+}
+
 esp_err_t board_touch_read(board_touch_t *t)
 {
-    uint8_t d[5];
-    ESP_RETURN_ON_ERROR(reg_read(s_touch, FT_REG_TD_STATUS, d, sizeof(d)), TAG, "touch read failed");
-    uint8_t points = d[0] & 0x0F;
-    t->pressed = points > 0 && points <= 2;
+    uint8_t d[9];
+    ESP_RETURN_ON_FALSE(s_touch, ESP_ERR_INVALID_STATE, TAG, "touch not initialised");
+    ESP_RETURN_ON_ERROR(touch_cmd(BOARD_TOUCH_DATA_REG, d, sizeof(d)), TAG, "touch read failed");
+    const uint8_t points = d[3] & 0x0F;
+    t->pressed = points > 0 && points <= 2 && (d[8] & 0xF0) != 0;
+    esp_err_t end = touch_cmd(BOARD_TOUCH_END_REG, NULL, 0);
+    if (end != ESP_OK) {
+        ESP_LOGW(TAG, "touch end-read: %s", esp_err_to_name(end));
+    }
     if (!t->pressed) {
         return ESP_OK;
     }
-    uint16_t tx = (uint16_t)(((d[1] & 0x0F) << 8) | d[2]);
-    uint16_t ty = (uint16_t)(((d[3] & 0x0F) << 8) | d[4]);
+    uint16_t tx = (uint16_t)(((d[7] & 0x0F) << 8) | d[4]);
+    uint16_t ty = (uint16_t)(((d[7] & 0xF0) << 4) | d[5]);
     if (tx >= BOARD_LCD_NATIVE_W) {
         tx = BOARD_LCD_NATIVE_W - 1;
     }
@@ -331,8 +330,8 @@ esp_err_t board_touch_read(board_touch_t *t)
     }
     t->raw_x = tx;
     t->raw_y = ty;
-    /* Raw coordinates match Waveshare's portrait view (MADCTL MX). Landscape
-     * MV maps landscape (x, y) to portrait (319 - y, x); the flip adds 180 degrees. */
+    /* CST3530 reports portrait scan coordinates. MX|MV maps landscape
+     * (x, y) onto portrait (y, native_w - 1 - x); MY|MV is the 180 turn. */
     if (s_orient == BOARD_ORIENT_LANDSCAPE) {
         t->x = ty;
         t->y = (uint16_t)(BOARD_LCD_NATIVE_W - 1 - tx);
@@ -362,17 +361,9 @@ esp_err_t board_init(board_orient_t orient)
     ESP_RETURN_ON_ERROR(exio_init(), TAG, "IO expander init failed");
     ESP_RETURN_ON_ERROR(board_i2c_scan(), TAG, "I2C scan failed");
 
-    ESP_RETURN_ON_ERROR(add_dev(BOARD_PMU_ADDR, &s_pmu), TAG, "add PMU failed");
     esp_err_t err = board_pmu_log();
-    if (err == ESP_OK) {
-        uint8_t adc = 0;
-        err = reg_read(s_pmu, AXP_REG_ADC_CTRL, &adc, 1);
-        if (err == ESP_OK && !(adc & BIT(0))) {
-            err = reg_write(s_pmu, AXP_REG_ADC_CTRL, adc | BIT(0));
-        }
-    }
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "AXP2101 status unavailable: %s", esp_err_to_name(err));
+        ESP_LOGW(TAG, "battery ADC unavailable: %s", esp_err_to_name(err));
     }
 
     const gpio_config_t inputs = {
@@ -384,10 +375,20 @@ esp_err_t board_init(board_orient_t orient)
 
     ESP_RETURN_ON_ERROR(lcd_init(orient), TAG, "LCD init failed");
 
-    /* FT6336 was reset together with the LCD; by now it has booted. */
+    /* CST3530 was reset with the LCD. A failed probe must not skip the backlight:
+     * the screen still runs, and touches are reported as released. */
     ESP_RETURN_ON_ERROR(add_dev(BOARD_TOUCH_ADDR, &s_touch), TAG, "add touch failed");
     board_touch_t t;
-    ESP_RETURN_ON_ERROR(board_touch_read(&t), TAG, "FT6336 not responding at 0x%02x", BOARD_TOUCH_ADDR);
-    ESP_LOGI(TAG, "FT6336 ok");
+    err = board_touch_read(&t);
+    if (err != ESP_OK) {
+        vTaskDelay(pdMS_TO_TICKS(300));
+        err = board_touch_read(&t);
+    }
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "CST3530 not responding at 0x%02x: %s", BOARD_TOUCH_ADDR, esp_err_to_name(err));
+        s_touch = NULL;
+    } else {
+        ESP_LOGI(TAG, "CST3530 ok");
+    }
     return ESP_OK;
 }

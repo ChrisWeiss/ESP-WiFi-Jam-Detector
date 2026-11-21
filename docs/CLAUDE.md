@@ -1,4 +1,11 @@
-# esp-wifi-jammer-detector (ESP32-C5-Touch-LCD-3.5)
+# esp-wifi-jammer-detector (ESP32-C5-Touch-LCD-2.8)
+
+`board-2.8` retargets the finished 3.5-inch firmware to the Waveshare
+ESP32-C5-Touch-LCD-2.8: ST7789 at 320×240 landscape (MADCTL MX|MV), CST3530
+touch, CH32V003 expander on GPIO0/1 for reset, backlight PWM and the battery
+ADC. There is no AXP2101. Checked on the connected 2.8-inch board: expander,
+ST7789, CST3530, LVGL status screen, and a readable landscape image. The
+milestone list below is the original 3.5-inch bring-up.
 Full spec: docs/BRIEF.md. Read the relevant section before each milestone.
 
 ## Hard rules

@@ -25,9 +25,9 @@
 static const char *TAG = "ui_settings";
 
 #define SAVE_IDLE_MS 2000
-#define ROW_H        42
-#define LABEL_W      210
-#define TOP_H        40
+#define ROW_H        30
+#define LABEL_W      108
+#define TOP_H        30
 
 typedef enum {
     P_GENERAL,
@@ -36,7 +36,7 @@ typedef enum {
     P_COUNT
 } page_t;
 
-static const char *const s_page_name[P_COUNT] = {"General", "Detection", "Scan & timing"};
+static const char *const s_page_name[P_COUNT] = {"General", "Detect", "Timing"};
 
 /* Page of each slider (params.c has names, keys and ranges). */
 static const page_t s_param_page[PARAM_COUNT] = {
@@ -248,7 +248,9 @@ static lv_obj_t *add_row(lv_obj_t *list, const char *name)
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t *l = lv_label_create(row);
     lv_label_set_text(l, name);
-    lv_obj_align(l, LV_ALIGN_LEFT_MID, 0, -8);
+    lv_obj_set_width(l, LABEL_W);
+    lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_CLIP);
+    lv_obj_align(l, LV_ALIGN_LEFT_MID, 0, 0);
     return row;
 }
 
@@ -256,11 +258,11 @@ lv_obj_t *ui_settings_create(void)
 {
     lv_obj_t *scr = ui_screen_create();
     lv_obj_t *title = lv_label_create(scr);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
-    lv_label_set_text(title, "Settings");
-    lv_obj_set_pos(title, 8, 9);
-    static const int32_t tab_w[P_COUNT] = {96, 100, 130}; /* sum + gaps clear the title */
-    for (int p = 0, x = BOARD_LCD_W - 4 - (96 + 100 + 130 + 2 * 6); p < P_COUNT; x += tab_w[p] + 6, p++) {
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
+    lv_label_set_text(title, "Set");
+    lv_obj_set_pos(title, 4, 6);
+    static const int32_t tab_w[P_COUNT] = {72, 68, 68};
+    for (int p = 0, x = BOARD_LCD_W - 4 - (72 + 68 + 68 + 2 * 4); p < P_COUNT; x += tab_w[p] + 4, p++) {
         lv_obj_t *tab = lv_button_create(scr);
         lv_obj_set_size(tab, tab_w[p], 32);
         lv_obj_set_pos(tab, x, 4);
@@ -281,8 +283,8 @@ lv_obj_t *ui_settings_create(void)
     lv_obj_set_size(buttons, lv_pct(100), 40);
     lv_obj_set_flex_flow(buttons, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(buttons, 8, 0);
-    add_button(buttons, "Re-learn baseline", relearn_cb);
-    add_button(buttons, "Auto-range gain", autorange_cb);
+    add_button(buttons, "Re-learn", relearn_cb);
+    add_button(buttons, "Range", autorange_cb);
     add_button(buttons, "Defaults", defaults_cb);
 
     s_info_label = lv_label_create(list);
@@ -293,13 +295,13 @@ lv_obj_t *ui_settings_create(void)
 
     /* First on its page: which bands are swept. Checkable buttons, lit when on. */
     lv_obj_t *scan_row = add_row(s_page[P_TIMING], "Scan bands");
-    for (int b = BAND_COUNT - 1, x = -8; b >= 0; b--, x -= 96) {
+    for (int b = BAND_COUNT - 1, x = -4; b >= 0; b--, x -= 74) {
         lv_obj_t *btn = lv_button_create(scan_row);
         lv_obj_t *l = lv_label_create(btn);
         lv_label_set_text(l, sweep_plan((band_id_t)b)->name);
         lv_obj_center(l);
         lv_obj_add_flag(btn, LV_OBJ_FLAG_CHECKABLE);
-        lv_obj_set_size(btn, 88, 32);
+        lv_obj_set_size(btn, 70, 24);
         lv_obj_align(btn, LV_ALIGN_RIGHT_MID, x, 0);
         lv_obj_set_style_bg_color(btn, lv_color_hex(0x2a3038), 0);
         lv_obj_set_style_bg_color(btn, lv_palette_main(LV_PALETTE_BLUE), LV_STATE_CHECKED);
@@ -310,10 +312,10 @@ lv_obj_t *ui_settings_create(void)
     for (int f = 0; f < PARAM_COUNT; f++) {
         lv_obj_t *row = add_row(s_page[s_param_page[f]], param_info[f].name);
         s_value[f] = lv_label_create(row);
-        lv_obj_align(s_value[f], LV_ALIGN_LEFT_MID, 0, 9);
         lv_obj_set_style_text_color(s_value[f], lv_color_hex(0x35d0ff), 0);
+        lv_obj_align(s_value[f], LV_ALIGN_RIGHT_MID, -100, 0);
         lv_obj_t *sl = lv_slider_create(row);
-        lv_obj_set_width(sl, BOARD_LCD_W - 24 - LABEL_W - 16);
+        lv_obj_set_width(sl, 88);
         lv_obj_align(sl, LV_ALIGN_RIGHT_MID, -8, 0);
         lv_slider_set_range(sl, param_info[f].min, param_info[f].max);
         /* VALUE_CHANGED updates the label, RELEASED applies */
@@ -371,6 +373,8 @@ void ui_settings_update(const ui_snap_t *s)
         }
         if (!s->power_ok) {
             snprintf(pwr, sizeof(pwr), "unknown");
+        } else if (s->power.battery && s->power.percent < 0) {
+            snprintf(pwr, sizeof(pwr), "battery %.2f V", s->power.battery_mv / 1000.0);
         } else if (s->power.battery) {
             snprintf(pwr, sizeof(pwr), "battery %d%% %.2f V%s", s->power.percent, s->power.battery_mv / 1000.0,
                      s->power.charging ? ", charging" : "");

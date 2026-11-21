@@ -1,9 +1,16 @@
 # esp-wifi-jammer-detector
 
 A **receive-only** 2.4 GHz + 5 GHz RF interference / possible-jamming detector
-for the Waveshare **ESP32-C5-Touch-LCD-3.5**. It uses the ESP32-C5's own Wi-Fi
+for the Waveshare **ESP32-C5-Touch-LCD-2.8**. It uses the ESP32-C5's own Wi-Fi
 receiver as a snapshot SDR (via [ESPARGOS esp-sdr](https://github.com/ESPARGOS/esp-sdr))
 and shows the noise floor and spectrum on the built-in touchscreen.
+
+This branch drives that 2.8-inch board: ST7789 at 320×240 landscape, CST3530
+touch, and the CH32V003 expander for LCD/touch reset, backlight and the
+battery ADC. Release images from upstream through v1.1.0 are built for the
+ESP32-C5-Touch-LCD-3.5 (ST7796, FT6336, different I2C pins) and leave this
+panel dark. The photos and GIFs below were taken on the 3.5-inch board; the
+2.8-inch firmware uses the same screens, fitted to 320×240.
 
 It never transmits, injects or deauthenticates anything. It can show that the
 RF environment changed; it cannot prove intent. A microwave oven will look
@@ -29,7 +36,8 @@ like interference on 2.4 GHz.
   and baseline, scrolling waterfall, and touch settings for every threshold.
 - **TF-card logging:** a CSV row for every state change. About 2 minutes
   after each alarm, a BMP of the waterfall with the alarm row in the middle.
-- **Battery level** from the AXP2101 power chip.
+- **Battery voltage** from the CH32V003 ADC. This board has no fuel gauge,
+  so there is no percentage or charging flag.
 - **Home Assistant:** plug the detector into the Home Assistant machine and
   install the bridge app from this repository. Alarms, readings, events and
   every setting appear as a device through MQTT discovery
@@ -93,7 +101,9 @@ integration):
 
 Device-wide, you get:
 
-- **Battery** and **Charging**
+- **Battery** and **Charging**. On this board the battery entity has no
+  percentage (`pct` is omitted; `mv` is the cell voltage) and Charging stays
+  off, because there is no fuel gauge.
 - **Controls:** a **Re-learn baseline** button, an **Alarm beep** switch, a
   **Bands scanned** select, and a number for every detection threshold and
   timing. Changes are applied and saved on the device straight away, the same
@@ -109,9 +119,13 @@ use it too ([docs/LINK.md](docs/LINK.md)).
 
 ## Flash a release (no build)
 
-Download `esp-wifi-jammer-detector-vX.Y.Z-merged.bin` from
-[Releases](https://github.com/TheDigital1/ESP-WiFi-Jam-Detector/releases) and
-write it at offset 0 with esptool 5 (`pip install esptool`; on esptool 4 the
+Those upstream release images target the 3.5-inch board and will not light
+this panel. Build this branch (next section) and flash that image.
+
+The upstream files, for a 3.5-inch board, are
+`esp-wifi-jammer-detector-vX.Y.Z-merged.bin` from
+[Releases](https://github.com/TheDigital1/ESP-WiFi-Jam-Detector/releases),
+written at offset 0 with esptool 5 (`pip install esptool`; on esptool 4 the
 command is `esptool.py ... write_flash`):
 
 ```sh
@@ -171,13 +185,13 @@ the synthetic spectra for the detector tests with `tools/sim_spectra.py`
   uptime) and the sweep rate. Tap a tile for its spectrum.
 - **Spectrum:** the current average (cyan, filled), max-hold (orange) and the
   learned baseline (grey) in relative dB, with Wi-Fi channel ticks and U-NII
-  labels. **2.4 / 5** switches band, **Reset max** clears max-hold.
-  **Waterfall** switches the plot to a scrolling history: one row per sweep,
+  labels. **Band** switches band, **Max** clears max-hold. **WF** switches
+  the plot to a scrolling history (the button then reads **Plot**): one row per sweep,
   newest at the top, coloured by dB above the baseline (dark blue −5 dB →
   cyan → yellow → red +30 dB; absolute level while learning). The left margin
-  shows the age of the rows. History (236 sweeps, ~2–4 min) is kept for both
-  bands all the time.
-- **Settings:** three tabs (General, Detection, Scan & timing) instead of a
+  shows the age of the rows. History (168 sweeps) is kept for both bands
+  all the time.
+- **Settings:** three tabs (General, Detect, Timing) instead of a
   scrolling list, because a full-screen LVGL redraw costs ~80 ms of CPU here
   and scrolling ran at a few frames/s while starving the sweep. Re-learn,
   auto-range gain, defaults; detection thresholds, sweep weighting and
@@ -194,8 +208,8 @@ the synthetic spectra for the detector tests with `tools/sim_spectra.py`
   lasts. The codec, I2S and amplifier only run during a beep; with beeps
   playing continuously the floor did not move (5 GHz within 0.1 dB, 2.4 GHz
   within normal Wi-Fi variation), so a beep cannot keep an alarm going.
-- **Event log:** with a FAT-formatted TF card inserted (and DIP switch JP8
-  pin 2 ON, per Waveshare's BSP), every state change is appended to
+- **Event log:** with a FAT-formatted TF card inserted before boot, every
+  state change is appended to
   `/jd_events.csv` on the card: boot number, uptime, band, from/to state,
   kind and all detector metrics. The card is optional.
 - **Alarm snapshots:** with a card in, each time a band enters ALARM its
@@ -206,8 +220,9 @@ the synthetic spectra for the detector tests with `tools/sim_spectra.py`
   columns of the CSV. The image has the band, kind, uptime, frequency axis,
   colour scale and a red mark on the alarm row, with times relative to it.
   One image per alarm; a second alarm before the image is saved is in it.
-- **Battery:** the status screen header shows `USB`, `battery NN%` or
-  `charging NN%` from the AXP2101 fuel gauge, read every 5 s.
+- **Battery:** the status screen header shows the cell voltage (for example
+  `4.24V`) from the CH32V003 ADC, read every 5 s. There is no percentage
+  and no USB/charging indication.
 - **Home Assistant:** see [Home Assistant](#home-assistant) above.
 - **USB link:** the protocol under the bridge. While a host sends commands,
   the device sends a status line every 10 s and on every state change, one
@@ -377,8 +392,9 @@ All of them also pass with other random seeds (`sim_spectra.py --seed`).
   ~300 KB alarm snapshot is written 32 rows at a time with 300 ms gaps, so
   the sweep keeps running between the pieces. Saving stops with under 2 MB
   free on the card.
-- **Battery percentage** is the AXP2101's own fuel gauge, uncalibrated for
-  the attached cell; untested here without a battery fitted.
+- **Battery reading** is one sample from the CH32V003 ADC (3.3 V reference,
+  3:1 divider), shown as volts. It is not a fuel gauge, and the board does
+  not report whether USB power or a charger is present.
 - **No Wi-Fi networking:** while sweeping, the radio is retuned constantly, so
   normal Wi-Fi (scan/connect/AP) is not available.
 - Normal Wi-Fi start-up runs the PHY's own calibration once at boot, as on every

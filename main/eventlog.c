@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * Card set-up as Waveshare's BSP bsp_sdcard_sdspi_mount(): SDSPI on the LCD's
- * SPI2 bus, CS GPIO9, no CD/WP, not formatted on failure. Each write runs
+ * SPI2 bus, CS GPIO23, no CD/WP, not formatted on failure. Each write runs
  * inside the radio-quiet window, like an LCD transfer: card traffic on the
  * shared bus must not overlap a capture.
  *
@@ -42,7 +42,7 @@ static const char *TAG = "eventlog";
 #define TASK_STACK 4096
 #define QUIET_MS   500
 #define IMG_DIR    MOUNT "/waterfall"
-#define IMG_ROWS   32    /* image rows per radio-quiet window (30 KB at 480 px) */
+#define IMG_ROWS   32    /* image rows per radio-quiet window (20 KB at 320 px) */
 #define IMG_GAP_MS 300   /* between windows: lets a sweep and the LCD through */
 #define IMG_MIN_KB 2048  /* card space kept free */
 
@@ -247,7 +247,7 @@ esp_err_t eventlog_start(void)
     esp_err_t err = esp_vfs_fat_sdspi_mount(MOUNT, &host, &slot, &mount, &s_card);
     board_rf_quiet_end();
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "no TF card (%s): event log off. With a card in, check DIP switch JP8 pin 2 is ON.",
+        ESP_LOGW(TAG, "no TF card (%s): event log off. Insert a FAT card and reset to try again.",
                  esp_err_to_name(err));
         return ESP_OK;
     }
